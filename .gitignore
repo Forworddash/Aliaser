@@ -1,0 +1,21 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data files (sensitive)
+*.vault
+*.backup
+data/
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
