@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.1.0, v1.0.0, etc.
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: aliaser
+            asset_name: aliaser-linux-x86_64
+          
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: aliaser
+            asset_name: aliaser-linux-aarch64
+          
+          # macOS x86_64 (Intel)
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: aliaser
+            asset_name: aliaser-macos-x86_64
+          
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: aliaser
+            asset_name: aliaser-macos-aarch64
+          
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: aliaser.exe
+            asset_name: aliaser-windows-x86_64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || true
+
+      - name: Create archive (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
+          mv ${{ matrix.asset_name }}.tar.gz ../../..
+
+      - name: Create archive (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path ${{ matrix.artifact_name }} -DestinationPath ../../../${{ matrix.asset_name }}.zip
+
+      - name: Upload artifact (Linux/macOS)
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}.tar.gz
+
+      - name: Upload artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}.zip
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure
+        run: ls -R artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          body: |
+            # Aliaser ${{ github.ref_name }}
+            
+            ## 🔐 Secure Local Identity Manager
+            
+            A secure, open-source password and identity manager with military-grade encryption.
+            
+            ### 📦 Downloads
+            
+            Choose the appropriate binary for your system:
+            
+            - **Linux x86_64**: `aliaser-linux-x86_64.tar.gz`
+            - **Linux ARM64**: `aliaser-linux-aarch64.tar.gz`
+            - **macOS Intel**: `aliaser-macos-x86_64.tar.gz`
+            - **macOS Apple Silicon**: `aliaser-macos-aarch64.tar.gz`
+            - **Windows**: `aliaser-windows-x86_64.exe.zip`
+            
+            ### 🚀 Quick Start
+            
+            **Linux/macOS:**
+            ```bash
+            # Extract
+            tar xzf aliaser-*.tar.gz
+            
+            # Make executable
+            chmod +x aliaser
+            
+            # Install (optional)
+            sudo mv aliaser /usr/local/bin/
+            
+            # Run
+            aliaser init
+            ```
+            
+            **Windows:**
+            ```powershell
+            # Extract the zip file
+            # Then run in PowerShell or Command Prompt
+            .\aliaser.exe init
+            ```
+            
+            ### 📚 Documentation
+            
+            - [README](https://github.com/${{ github.repository }}/blob/main/README.md)
+            - [Quick Start Guide](https://github.com/${{ github.repository }}/blob/main/QUICKSTART.md)
+            - [Security Information](https://github.com/${{ github.repository }}/blob/main/SECURITY_COMPARISON.md)
+            
+            ### ✅ Verification
+            
+            All binaries are built automatically via GitHub Actions from the tagged source code.
+            View the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for full build logs.
+            
+            ### 🔒 Security
+            
+            - **Encryption**: AES-256-GCM
+            - **Key Derivation**: Argon2id
+            - **Storage**: Local only (no cloud)
+            - **Open Source**: Fully auditable
+            
+            **⚠️ Important**: Your master password cannot be recovered if lost. Keep backups safe!
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
