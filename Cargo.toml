@@ -2,7 +2,7 @@
 name = "aliaser"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name"]
+authors = ["Sam"]
 description = "A secure, local identity and password manager"
 license = "GPL"
 
@@ -11,6 +11,9 @@ license = "GPL"
 aes-gcm = "0.10"
 argon2 = "0.5"
 rand = "0.8"
+yubico_manager = "0.9"
+hkdf = "0.12"
+sha2 = "0.10" 
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

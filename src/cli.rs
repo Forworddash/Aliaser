@@ -1,5 +1,6 @@
 use crate::identity::{Credentials, Identity, PersonalInfo};
 use crate::storage::Vault;
+use crate::yubikey::YubiKeyAuth;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
@@ -64,16 +65,37 @@ pub fn init() -> Result<()> {
     println!("{}", "Initializing new vault...".cyan().bold());
     println!();
 
+    // ask about YubiKey
+    let use_yubikey = if YubiKeyAuth::is_available() {
+        println!("{}", "YubiKey detected!".green());
+        prompt_yes_no("Enable YubiKey authentication? (y/n): ")?
+    } else {
+        println!("{}", "No YubiKey detected (optional)".dimmed());
+        false
+    };
+
     let master_password = prompt_new_password("Enter master password: ")?;
 
-    vault.initialize(&master_password)?;
+    if use_yubikey {
+        println!();
+        println!("{}", "Please touch your YubiKey...".cyan());
+    }
+
+    vault.initialize(&master_password, use_yubikey)?;
 
     println!();
     println!("{}", "✓ Vault initialized successfully!".green().bold());
-    println!(
-        "{}",
-        "Your data is encrypted with AES-256-GCM and stored locally.".dimmed()
-    );
+    
+    if use_yubikey {
+        println!(
+            "{}",
+            "⚠ YubiKey required: Keep your YubiKey safe!".yellow()
+        );
+        println!(
+            "{}",
+            "  You'll need both your password AND YubiKey to unlock.".yellow()
+        );
+    }
     println!(
         "{}",
         "⚠ Remember your master password - it cannot be recovered!".yellow()

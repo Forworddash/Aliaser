@@ -2,6 +2,7 @@ mod cli;
 mod crypto;
 mod identity;
 mod storage;
+mod yubikey;
 
 use anyhow::Result;
 use clap::Parser;

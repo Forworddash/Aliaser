@@ -1,4 +1,5 @@
-use crate::crypto::{decrypt, derive_key, encrypt, generate_salt, hash_password, verify_password};
+use crate::crypto::{decrypt, derive_key, derive_key_with_yubikey, encrypt, generate_salt, hash_password, verify_password};
+use crate::yubikey::YubiKeyAuth;
 use crate::identity::Identity;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -9,12 +10,13 @@ use std::path::{Path, PathBuf};
 const VAULT_FILE: &str = ".aliaser.vault";
 const CONFIG_FILE: &str = ".aliaser.config";
 
-/// Vault metadata stored separately (unencrypted)
+/// Vault configuration with YubiKey support
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VaultConfig {
     pub master_password_hash: String,
     pub salt: Vec<u8>,
     pub version: String,
+    pub yubikey_enabled: bool,
 }
 
 /// Encrypted vault data
@@ -49,9 +51,14 @@ impl Vault {
     }
 
     /// Initializes a new vault with a master password
-    pub fn initialize(&mut self, master_password: &str) -> Result<()> {
+    pub fn initialize(&mut self, master_password: &str, use_yubikey: bool) -> Result<()> {
         if self.is_initialized() {
             anyhow::bail!("Vault already initialized");
+        }
+
+        // check YubiKey if requested
+        if use_yubikey && !YubiKeyAuth::is_available() {
+            anyhow::bail!("YubiKey not found. Please plug it in");
         }
 
         // Generate salt and hash password
@@ -63,14 +70,15 @@ impl Vault {
             master_password_hash: password_hash,
             salt: salt.to_vec(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            yubikey_enabled: use_yubikey,
         };
 
         // Save config
         let config_json = serde_json::to_string_pretty(&config)?;
         fs::write(&self.config_path, config_json)?;
 
-        // Derive encryption key
-        let key = derive_key(master_password, &salt)?;
+        // Derive encryption key (with YubiKey if enabled)
+        let key = derive_key_with_yubikey(master_password, &salt, use_yubikey)?;
         self.key = Some(key);
 
         // Create empty vault
@@ -82,7 +90,7 @@ impl Vault {
         Ok(())
     }
 
-    /// Unlocks the vault with the master password
+    /// Unlocks the vault with the master password or optional YubiKey
     pub fn unlock(&mut self, master_password: &str) -> Result<()> {
         if !self.is_initialized() {
             anyhow::bail!("Vault not initialized. Run 'init' first.");
@@ -96,8 +104,14 @@ impl Vault {
             anyhow::bail!("Invalid master password");
         }
 
+        // check YubiKey if enabled
+        if config.yubikey_enabled && !YubiKeyAuth::is_available() {
+            anyhow::bail!("YubiKey required but not found. Please plug it in");
+        }
+
+
         // Derive key
-        let key = derive_key(master_password, &config.salt)?;
+        let key = derive_key_with_yubikey(master_password, &config.salt, config.yubikey_enabled)?;
         self.key = Some(key);
 
         Ok(())
@@ -179,6 +193,7 @@ impl Vault {
             master_password_hash: new_hash,
             salt: new_salt.to_vec(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            yubikey_enabled: false, // TODO: Preserve yubikey setting when changing password
         };
 
         let config_json = serde_json::to_string_pretty(&config)?;

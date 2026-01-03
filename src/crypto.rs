@@ -7,7 +7,8 @@ use argon2::{
     Argon2, PasswordHash, PasswordVerifier,
 };
 use rand::RngCore;
-use anyhow::Result;
+use anyhow::{Result, Context};
+use crate::yubikey::{YubiKeyAuth, combine_keys};
 
 const NONCE_SIZE: usize = 12;
 const SALT_SIZE: usize = 32;
@@ -23,6 +24,31 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32]> {
     
     Ok(output_key)
 }
+
+/// Derives encryption key with optional YubiKey
+pub fn derive_key_with_yubikey(
+    password: &str,
+    salt: &[u8],
+    use_yubikey: bool,
+) -> Result<[u8; 32]> {
+    // derive the key from password
+    let password_key = derive_key(password, salt)?;
+
+    if use_yubikey {
+        // get yubikey component
+        let mut yubikey = YubiKeyAuth::new()
+            .context("Failed to initialize Yubikey")?;
+
+        let yubikey_key = yubikey.derive_key_component(salt)
+            .context("Failed to derive key from YubiKey")?;
+
+        // combine both keys
+        Ok(combine_keys(&password_key, &yubikey_key))
+    } else {
+        Ok(password_key)
+    }
+}
+
 
 /// Generates a random salt for key derivation
 pub fn generate_salt() -> [u8; SALT_SIZE] {
@@ -118,4 +144,28 @@ mod tests {
         assert!(verify_password(password, &hash).unwrap());
         assert!(!verify_password("wrong_password", &hash).unwrap());
     }
+
+    #[test]
+    fn test_yubikey_detection() {
+        match YubiKeyAuth::is_available() {
+            true => println!("YubiKey detected"),
+            false => println!("No YubiKey found"),
+        }
+    }
+
+    #[test]
+    fn test_challenge_response() {
+        if !YubiKeyAuth::is_available() {
+            return; // Skip if no YubiKey
+        }
+
+        let yubikey = YubiKeyAuth::new().unwrap();
+        let challenge = b"test challenge";
+        let response1 = yubikey.challenge_response(challenge).unwrap();
+        let response2 = yubikey.challenge_response(challenge).unwrap();
+        
+        // Same challenge should give same response
+        assert_eq!(response1, response2);
+    }
+
 }
